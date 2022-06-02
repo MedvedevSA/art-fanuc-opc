@@ -1,3 +1,4 @@
+from typing import List
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -37,27 +38,49 @@ class DataStoreController():
 
         return response
 
-    def control_emissions(self, cur_status):
+    def control_emissions_db(self):
         """
             Если статус работы станка изменился меньше чем на минуту убирает запись о изменении состояния
-        """
 
         #Из последних двух записей получить объекты datetime
-        last, prev = list(
-            map(
-                lambda string : datetime.strptime(string, '%Y-%m-%d %H:%M:%S.%f'),
-                [row.log_time for row in self.last_status_log]
+        """
+        for client_ip in self.client_ip_list:
+
+            db_rows : List[StatusLog] = (
+                self.db_session.query(StatusLog)
+                .order_by(StatusLog.log_time.desc())
+                .filter(StatusLog.client_ip == client_ip)
+                .limit(2)
             )
-        )
+
+            db_rows = [row for row in db_rows]
+
+            if len(db_rows) != 2 :
+                continue
+
+            cur ,prev = db_rows
+
+            #Если статус одинаковый подряд
+            if cur.client_status == prev.client_status :
+                self.db_session.delete(cur)
+
+                continue
+
+            cur_time, prev_time = list(
+                map(
+                    lambda string : datetime.strptime(string, '%Y-%m-%d %H:%M:%S.%f'),
+                    [row.log_time for row in db_rows]
+                )
+            )
         
+            if (cur_time - prev_time).seconds < 60:
+                self.db_session.delete( prev )
+                continue
+        
+        self.db_session.commit()
 
-        if (last - prev).seconds < 60:
-            self.db_session.delete(
-                self.last_status_log[1]
-            )
 
-
-    def is_status_changed(self, cur_status):
+    def is_status_changed(self, cur_status, last_status):
         """
         Проверочная функция
 
@@ -66,10 +89,10 @@ class DataStoreController():
         return False - Если изменений нету
         """
 
-        if self.last_status_log == None:
+        if last_status == None:
             return True
 
-        if cur_status['run'] == self.last_status_log[0].client_status:
+        if cur_status['run'] == last_status.client_status:
             return False
         else:
             return True
@@ -81,7 +104,7 @@ class DataStoreController():
             self.db_session.query(StatusLog)
             .order_by(StatusLog.log_time.desc())
             .filter(StatusLog.client_ip == client_ip)
-            .limit(2)
+            .first()
         )   
 
 
@@ -90,11 +113,10 @@ class DataStoreController():
 
         for client_ip, log_time, status in data:
             
-            self.last_status_log = self.get_last_status_log(client_ip)
+            last_status_log = self.get_last_status_log(client_ip)
 
-            if self.is_status_changed(status):
+            if self.is_status_changed(status, last_status_log):
 
-                self.control_emissions(status)
             
                 self.db_session.add(
                     StatusLog(
@@ -126,5 +148,7 @@ class DataStoreController():
                 data = self.get_clients_status()
 
                 self.save_status_to_db(data)
+                
+                self.control_emissions_db()
 
                 print("tik tak "  + str(self.lasttime))
