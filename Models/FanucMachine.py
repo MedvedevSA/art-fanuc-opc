@@ -1,5 +1,6 @@
 import ctypes
 import os
+import re
 
 libpath = os.path.join(
     os.path.dirname(__file__),  
@@ -34,12 +35,19 @@ class FanucMachine():
             ctypes.byref(self.libh),
         )
         if ret != 0:
-            raise Exception(f"Failed to connect to cnc! ({ret})")
+            raise ConnectionError(f"Failed to connect to cnc! ({ret})")
 
     def disconnect(self):
         ret = focas.cnc_freelibhndl(self.libh)
         if ret != 0:
             raise Exception(f"Failed to free library handle! ({ret})")
+
+    def get_run_status(self):
+
+        try:
+            return int((self.get_status())['run'])
+        except:
+            return -1
 
     def get_status(self):
 
@@ -54,7 +62,7 @@ class FanucMachine():
                 stat_dict[field] = getattr(statinfo, field)
 
             if res != 0:
-                raise Exception(f"Failed to read cnc id! ({res})")
+                raise ConnectionError(f"Failed to read cnc id! ({res})")
 
             return stat_dict
 

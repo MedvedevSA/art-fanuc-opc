@@ -16,7 +16,7 @@ class DataStoreController():
         self.client_ip_list = ip_list
     
     def setup_sql_config(self):
-        self.db_engine = create_engine('sqlite:///database.db', echo = True)
+        self.db_engine = create_engine('sqlite:///database.db', echo = False)
 
         Session = sessionmaker(bind = self.db_engine )
         self.db_session = Session()
@@ -27,9 +27,19 @@ class DataStoreController():
         response = list()       
 
         for clien_ip in self.client_ip_list:
+
             cur_client = FanucMachine(clien_ip)
 
-            status = cur_client.get_status()
+            status = cur_client.get_run_status()
+            """
+                Status of automatic operation
+                -1	:	DISCONNECTED
+                0	:	STOP
+                1	:	HOLD
+                2	:	STaRT
+                3	:	MSTR(jog mdi)
+            """
+
             cur_time = datetime.now()
 
             response.append(
@@ -80,7 +90,7 @@ class DataStoreController():
         self.db_session.commit()
 
 
-    def is_status_changed(self, cur_status, last_status):
+    def is_status_changed(self, cur_status : int, last_status : int):
         """
         Проверочная функция
 
@@ -92,13 +102,13 @@ class DataStoreController():
         if last_status == None:
             return True
 
-        if cur_status['run'] == last_status.client_status:
+        if cur_status == last_status.client_status:
             return False
         else:
             return True
 
 
-    def get_last_status_log(self, client_ip):
+    def get_last_status_log(self, client_ip) -> int:
         #Получить последние 2 записи client_ip из БД
         return (
             self.db_session.query(StatusLog)
@@ -109,7 +119,7 @@ class DataStoreController():
 
 
 
-    def save_status_to_db(self, data):
+    def append_status_to_db(self, data):
 
         for client_ip, log_time, status in data:
             
@@ -122,7 +132,7 @@ class DataStoreController():
                     StatusLog(
                         client_ip=client_ip,
                         log_time=log_time,
-                        client_status=int(status['run'])
+                        client_status=int(status)
                     )
                 )
 
@@ -147,7 +157,7 @@ class DataStoreController():
 
                 data = self.get_clients_status()
 
-                self.save_status_to_db(data)
+                self.append_status_to_db(data)
                 
                 self.control_emissions_db()
 
